@@ -1,0 +1,70 @@
+### 1. Current state
+$ kubectl -n devops-task get deploy devops-task -o wide
+NAME          READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                               SELECTOR
+devops-task   2/2     2            2           3m53s   app          ghcr.io/asad6426/devops-task:1.0.0   app.kubernetes.io/name=devops-task
+
+$ curl / (from inside a pod)
+{"message":"Hello from DevOps Task!","status":"running","version":"1.0.0"}
+
+### 2. Rolling update to ghcr.io/asad6426/devops-task:1.1.0 while the load generator hits the Service
+$ kubectl -n devops-task set image deploy/devops-task app=ghcr.io/asad6426/devops-task:1.1.0
+deployment.apps/devops-task image updated
+
+$ kubectl -n devops-task annotate deploy/devops-task kubernetes.io/change-cause=set image ghcr.io/asad6426/devops-task:1.1.0 --overwrite
+deployment.apps/devops-task annotated
+
+$ kubectl -n devops-task rollout status deploy/devops-task --timeout=180s
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "devops-task" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "devops-task" rollout to finish: 1 old replicas are pending termination...
+deployment "devops-task" successfully rolled out
+
+$ curl / (from inside a pod)
+{"message":"Hello from DevOps Task!","status":"running","version":"1.1.0"}
+
+$ kubectl -n devops-task rollout history deploy/devops-task
+deployment.apps/devops-task 
+REVISION  CHANGE-CAUSE
+2         upgrade to 1.1.0
+3         <none>
+4         <none>
+5         set image ghcr.io/asad6426/devops-task:1.1.0
+
+
+### 3. Rollback with kubectl rollout undo
+$ kubectl -n devops-task rollout undo deploy/devops-task
+Warning: resource deployments/devops-task was previously managed with 'kubectl apply'. Rolling back will not update the kubectl.kubernetes.io/last-applied-configuration annotation, which may cause unexpected behavior on future 'kubectl apply' operations. Consider using 'kubectl apply' with your previous configuration file instead.
+deployment.apps/devops-task rolled back
+
+$ kubectl -n devops-task rollout status deploy/devops-task --timeout=180s
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "devops-task" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "devops-task" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "devops-task" rollout to finish: 1 old replicas are pending termination...
+deployment "devops-task" successfully rolled out
+
+$ curl / (from inside a pod)
+{"message":"Hello from DevOps Task!","status":"running","version":"1.0.0"}
+
+$ kubectl -n devops-task get pods
+NAME                           READY   STATUS        RESTARTS   AGE
+devops-task-646f879c86-4hp7l   1/1     Running       0          16s
+devops-task-646f879c86-v7msb   1/1     Running       0          28s
+devops-task-8579879649-6kjvt   1/1     Terminating   0          53s
+
+### 4. Load generator result (covers both rollouts)
+$ kubectl logs loadgen
+RESULT ok=2186 fail=0
+
+### 5. HPA
+$ kubectl -n devops-task get hpa
+NAME          REFERENCE                TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+devops-task   Deployment/devops-task   cpu: 52%/70%   2         6         2          6m20s
+

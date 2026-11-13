@@ -1,0 +1,21 @@
+# Requires ingress-nginx (see README). Without an ingress controller use:
+#   kubectl -n devops-task port-forward svc/devops-task 8081:80
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devops-task
+  labels:
+    app.kubernetes.io/name: devops-task
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: devops-task.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devops-task
+                port:
+                  name: http
