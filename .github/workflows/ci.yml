@@ -112,7 +112,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy - report HIGH and CRITICAL
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: devops-task:ci-${{ github.sha }}
           severity: HIGH,CRITICAL
@@ -121,7 +121,7 @@ jobs:
           exit-code: "0"
 
       - name: Trivy - gate on CRITICAL
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         env:
           TRIVY_SKIP_DB_UPDATE: "true"
         with:
