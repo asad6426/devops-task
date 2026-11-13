@@ -1,0 +1,77 @@
+# Thresholds and `for` durations are explained in README.md -> "Alerting rules".
+groups:
+  - name: app
+    rules:
+      - alert: AppInstanceDown
+        expr: up{job="app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "devops-task instance {{ $labels.instance }} is down"
+          description: "Prometheus has failed to scrape {{ $labels.instance }} for more than 1 minute."
+
+      - alert: AppHighErrorRate
+        expr: |
+          (
+            sum(rate(http_request_errors_total{job="app"}[5m]))
+            /
+            sum(rate(http_requests_total{job="app"}[5m]))
+          ) > 0.05
+          and
+          sum(rate(http_requests_total{job="app"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "devops-task 5xx error rate above 5%"
+          description: "Error ratio is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: AppHighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="app", path!="/metrics"}[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "devops-task p95 latency above 500ms"
+          description: "p95 latency is {{ $value | humanizeDuration }}."
+
+  - name: host
+    rules:
+      - alert: HostDiskUsageHigh
+        expr: |
+          (
+            1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}
+              / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}
+          ) > 0.80
+          unless on (instance, device, mountpoint) node_filesystem_readonly == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk usage above 80% on {{ $labels.mountpoint }}"
+          description: "{{ $labels.mountpoint }} is {{ $value | humanizePercentage }} full."
+
+      - alert: HostHighCpuUsage
+        expr: (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU above 90% for 15 minutes"
+
+  - name: containers
+    rules:
+      - alert: ContainerMemoryNearLimit
+        expr: |
+          (
+            container_memory_working_set_bytes{name!=""}
+            / on (id) (container_spec_memory_limit_bytes{name!=""} > 0)
+          ) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} memory above 90% of its limit"
+          description: "{{ $labels.name }} uses {{ $value | humanizePercentage }} of its memory limit; OOM kill is likely."
