@@ -1,0 +1,18 @@
+[project]
+name = "devops-task"
+requires-python = ">=3.13"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = ["S101"]  # assert is fine in tests
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=app --cov-report=term-missing --cov-report=xml"
+
+[tool.coverage.run]
+omit = ["app/__main__.py"]
