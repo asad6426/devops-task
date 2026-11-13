@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  lint-test:
+    name: Lint, test & coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check --output-format=github .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Unit tests with coverage
+        run: pytest --cov-fail-under=85
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo "## Test coverage"
+            echo '```'
+            python -m coverage report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 14
+
+  static-analysis:
+    name: Dockerfile, shell & IaC lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+      - name: ShellCheck
+        run: |
+          shellcheck --version
+          shellcheck -x scripts/*.sh
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Terraform fmt & validate
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Kubernetes manifests (kubeconform)
+        run: |
+          cp k8s/secret.env.example k8s/secret.env
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          kubectl kustomize k8s | ./kubeconform -strict -summary -kubernetes-version 1.32.0
+
+  build-scan:
+    name: Build image & Trivy scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (single arch, loaded locally for scanning)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: devops-task:ci-${{ github.sha }}
+          build-args: |
+            APP_VERSION=ci
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy - report HIGH and CRITICAL
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: devops-task:ci-${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "0"
+
+      - name: Trivy - gate on CRITICAL
+        uses: aquasecurity/trivy-action@0.28.0
+        env:
+          TRIVY_SKIP_DB_UPDATE: "true"
+        with:
+          image-ref: devops-task:ci-${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+
+      - name: Smoke test the built image
+        run: |
+          docker run -d --name smoke -p 8080:8080 --read-only devops-task:ci-${{ github.sha }}
+          for i in $(seq 1 20); do curl -fsS localhost:8080/health && break; sleep 1; done
+          curl -fsS localhost:8080/ | tee /dev/stderr | grep -q "Hello from DevOps Task!"
+          curl -fsS localhost:8080/metrics | grep -q http_requests_total
+          docker image ls devops-task:ci-${{ github.sha }} --format 'Image size: {{.Size}}' >> "$GITHUB_STEP_SUMMARY"
+          docker rm -f smoke
