@@ -1,0 +1,22 @@
+#!/bin/bash
+# EC2 bootstrap (Amazon Linux 2023): install Docker, install the deploy script, start the app.
+set -euo pipefail
+exec > >(tee -a /var/log/devops-task-bootstrap.log) 2>&1
+
+dnf install -y docker
+systemctl enable --now docker
+
+mkdir -p /opt/devops-task
+cat > /opt/devops-task/deploy.conf <<'EOF'
+AWS_REGION=${region}
+LOG_GROUP=${log_group}
+HOST_PORT=${host_port}
+APP_ENV=${environment}
+EOF
+
+cat > /usr/local/bin/devops-task-deploy <<'DEPLOY_SCRIPT'
+${deploy_script}
+DEPLOY_SCRIPT
+chmod 0755 /usr/local/bin/devops-task-deploy
+
+/usr/local/bin/devops-task-deploy '${app_image}'
