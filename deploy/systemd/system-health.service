@@ -1,0 +1,19 @@
+[Unit]
+Description=Host health check (system_health.sh)
+Documentation=https://github.com/asad6426/devops-task
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Exit code 1/2 means "warning/critical", not a failed unit run.
+SuccessExitStatus=1 2
+ExecStart=/usr/local/bin/system_health.sh --quiet --json --log-file /var/log/system-health/health_log.txt
+EnvironmentFile=-/etc/default/system-health
+User=root
+Nice=10
+# Hardening: the script only reads /proc and writes its own log directory.
+ProtectSystem=strict
+ReadWritePaths=/var/log/system-health
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
